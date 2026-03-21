@@ -88,11 +88,10 @@ def train(config: TrainConfig | None = None, resume_from: Path | None = None):
         for batch in train_loader:
             board = batch["board"].to(device)
             policy_target = batch["policy_target"].to(device)
-            legal_mask = batch["legal_mask"].to(device)
             elo = batch["elo"].to(device)
 
-            # Forward
-            policy_logprobs, value_pred = model(board, elo, legal_mask)
+            # Forward (no legal mask during training — CE loss handles it)
+            policy_logprobs, value_pred = model(board, elo)
 
             # Value target: placeholder zeros (real targets come from Stockfish evals)
             # TODO: Add actual value targets from Lichess eval dataset

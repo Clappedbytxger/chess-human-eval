@@ -94,7 +94,7 @@ def extract_samples_to_parquet(
     if all_samples:
         _save_parquet(all_samples, output_path, append=output_path.exists())
 
-    print(f"Extracted {game_count} games → {output_path}")
+    print(f"Extracted {game_count} games -> {output_path}")
     return output_path
 
 

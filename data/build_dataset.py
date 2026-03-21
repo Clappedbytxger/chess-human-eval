@@ -47,17 +47,15 @@ def build_chunks(
 
     boards_buf = []
     policies_buf = []
-    masks_buf = []
     elos_buf = []
 
     for i, row in tqdm(df.iterrows(), total=total, desc="Encoding samples"):
         try:
-            board_tensor, policy_idx, legal_mask = encode_sample(
+            board_tensor, policy_idx, _ = encode_sample(
                 row["fen"], row["move_uci"]
             )
             boards_buf.append(board_tensor)
             policies_buf.append(policy_idx)
-            masks_buf.append(legal_mask)
             elos_buf.append(row["active_elo"])
         except (ValueError, IndexError) as e:
             continue
@@ -65,17 +63,17 @@ def build_chunks(
         if len(boards_buf) >= chunk_size:
             path = _save_chunk(
                 output_dir, chunk_idx,
-                boards_buf, policies_buf, masks_buf, elos_buf
+                boards_buf, policies_buf, elos_buf
             )
             chunk_paths.append(path)
             chunk_idx += 1
-            boards_buf, policies_buf, masks_buf, elos_buf = [], [], [], []
+            boards_buf, policies_buf, elos_buf = [], [], []
 
     # Save remaining
     if boards_buf:
         path = _save_chunk(
             output_dir, chunk_idx,
-            boards_buf, policies_buf, masks_buf, elos_buf
+            boards_buf, policies_buf, elos_buf
         )
         chunk_paths.append(path)
 
@@ -85,7 +83,7 @@ def build_chunks(
 
 def _save_chunk(
     output_dir: Path, chunk_idx: int,
-    boards: list, policies: list, masks: list, elos: list
+    boards: list, policies: list, elos: list
 ) -> Path:
     """Save a single HDF5 chunk."""
     path = output_dir / f"chunk_{chunk_idx:05d}.h5"
@@ -93,7 +91,6 @@ def _save_chunk(
     with h5py.File(path, "w") as f:
         f.create_dataset("boards", data=np.stack(boards), dtype="float32")
         f.create_dataset("policies", data=np.array(policies), dtype="int64")
-        f.create_dataset("legal_masks", data=np.stack(masks), dtype="float32")
         f.create_dataset("elos", data=np.array(elos), dtype="int32")
 
     return path

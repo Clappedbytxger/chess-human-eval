@@ -60,22 +60,22 @@ class ChessDataset(Dataset):
             "policy_target": torch.tensor(
                 self._cached_data["policies"][sample_idx], dtype=torch.long
             ),
-            "legal_mask": torch.from_numpy(
-                self._cached_data["legal_masks"][sample_idx]
-            ),
             "elo": torch.tensor(
                 self._cached_data["elos"][sample_idx], dtype=torch.float32
             ),
         }
 
     def _load_chunk(self, chunk_idx: int):
-        """Load a chunk into memory cache."""
+        """Load a chunk into memory cache, freeing the previous one first."""
+        import gc
+        self._cached_data = None
+        gc.collect()
+
         path = self.chunk_paths[chunk_idx]
         with h5py.File(path, "r") as f:
             self._cached_data = {
                 "boards": f["boards"][:],
                 "policies": f["policies"][:],
-                "legal_masks": f["legal_masks"][:],
                 "elos": f["elos"][:],
             }
         self._cached_chunk_idx = chunk_idx
