@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Data files
+*.pgn
+*.pgn.zst
+*.pgn.bz2
+*.h5
+*.hdf5
+*.parquet
+data/raw/
+data/processed/
+data/chunks/
+
+# Model checkpoints
+checkpoints/
+*.pt
+*.pth
+*.onnx
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Node (frontend)
+web/frontend/node_modules/
+web/frontend/dist/
+
+# Logs
+*.log
+wandb/
+runs/
