@@ -5,17 +5,19 @@ interface Props {
 }
 
 export function EvalBar({ humanEval, engineEval, valueHeadEval }: Props) {
-  // Use value head eval as fallback display
-  const displayEval = humanEval ?? valueHeadEval;
-  // Map from [-1, 1] to percentage (0.5 = equal)
-  const pct = Math.max(5, Math.min(95, (displayEval + 1) * 50));
+  // Convert centipawns to pawns for display, fallback to value head
+  const hasStockfish = humanEval !== null;
+  const displayHuman = hasStockfish ? humanEval / 100 : valueHeadEval;
+  // Map eval in pawns to bar percentage (0 = 50%, ±5 pawns = 5%/95%)
+  const barEval = hasStockfish ? humanEval / 100 : valueHeadEval;
+  const pct = Math.max(5, Math.min(95, 50 + barEval * 10));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", gap: 12 }}>
-        <EvalValue label="Human" value={displayEval} isRaw={humanEval === null} />
+        <EvalValue label="Human" value={displayHuman} isRaw={!hasStockfish} />
         {engineEval !== null && (
-          <EvalValue label="Engine" value={engineEval / 100} isRaw={false} />
+          <EvalValue label="Stockfish" value={engineEval / 100} isRaw={false} />
         )}
       </div>
 

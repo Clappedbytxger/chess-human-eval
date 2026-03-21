@@ -116,24 +116,30 @@ async def analyze_position(req: AnalyzeRequest):
     except ValueError:
         raise HTTPException(400, f"Invalid FEN: {req.fen}")
 
-    # First pass: get top moves from policy head (without Stockfish evals)
+    # Get top moves from policy head
     result = compute_human_eval(
         model, req.fen, req.elo, top_k=req.top_k, device=device
     )
 
-    # Second pass: evaluate top moves with Stockfish, then recompute
+    # Add Stockfish evals to each move
     if stockfish and result.get("top_moves"):
-        top_moves_uci = [
-            chess.Move.from_uci(m["move_uci"]) for m in result["top_moves"]
-        ]
-        sf_evals = stockfish.evaluate_moves(board, top_moves_uci)
+        moves = [chess.Move.from_uci(m["move_uci"]) for m in result["top_moves"]]
+        sf_evals = stockfish.evaluate_moves(board, moves)
+
+        for m in result["top_moves"]:
+            if m["move_uci"] in sf_evals:
+                m["eval"] = sf_evals[m["move_uci"]]
+                m["contribution"] = m["probability"] * sf_evals[m["move_uci"]]
+
         if sf_evals:
-            result = compute_human_eval(
-                model, req.fen, req.elo,
-                stockfish_evals=sf_evals,
-                top_k=req.top_k,
-                device=device,
+            result["human_eval"] = sum(
+                m.get("contribution", 0) for m in result["top_moves"]
             )
+            # Engine eval = objective position eval, independent of model
+            result["engine_eval"] = stockfish.evaluate_position(board)
+            result["eval_gap"] = result["engine_eval"] - result["human_eval"]
+            gap = abs(result["eval_gap"])
+            result["difficulty"] = "easy" if gap < 30 else "tricky" if gap < 100 else "deadly"
 
     return AnalyzeResponse(**result)
 
@@ -149,11 +155,16 @@ async def analyze_elo_range(req: EloCurveRequest):
     except ValueError:
         raise HTTPException(400, f"Invalid FEN: {req.fen}")
 
-    # Get Stockfish evals for all legal moves (computed once, reused across Elos)
+    # Get Stockfish evals for top candidate moves (computed once, reused across Elos)
     sf_evals = {}
     if stockfish:
         board = chess.Board(req.fen)
-        sf_evals = stockfish.evaluate_all_legal(board)
+        # Only evaluate top 10 most likely moves (much faster than all legal)
+        preview = compute_human_eval(model, req.fen, 1500, top_k=10, device=device)
+        candidate_moves = [
+            chess.Move.from_uci(m["move_uci"]) for m in preview.get("top_moves", [])
+        ]
+        sf_evals = stockfish.evaluate_moves(board, candidate_moves)
 
     curve = compute_elo_curve(
         model, req.fen,

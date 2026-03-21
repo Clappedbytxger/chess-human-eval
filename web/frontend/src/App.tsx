@@ -24,15 +24,17 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const [result, curve] = await Promise.all([
-        analyzePosition(currentFen, currentElo),
-        analyzeEloRange(currentFen),
-      ]);
+      // Show main analysis immediately, load elo curve in background
+      const result = await analyzePosition(currentFen, currentElo);
       setAnalysis(result);
-      setEloCurve(curve);
+      setLoading(false);
+
+      // Elo curve loads separately (slower due to Stockfish)
+      analyzeEloRange(currentFen)
+        .then(setEloCurve)
+        .catch(() => setEloCurve(null));
     } catch (e: any) {
       setError(e.message || "Analysis failed");
-    } finally {
       setLoading(false);
     }
   }, []);
