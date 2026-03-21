@@ -16,6 +16,7 @@ from model.chess_net import ChessNet
 from model.board_encoder import BoardEncoder
 from model.policy_head import get_legal_move_mask, policy_index_to_move
 from evaluation.human_eval import compute_human_eval, compute_elo_curve
+from evaluation.stockfish_service import StockfishService
 from training.checkpoint import CheckpointManager
 
 app = FastAPI(title="Chess Human Eval API", version="1.0.0")
@@ -27,8 +28,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global model (loaded on startup)
+# Global model and engine (loaded on startup)
 model: ChessNet | None = None
+stockfish: StockfishService | None = None
 device: str = "cpu"
 
 CHECKPOINT_PATH = Path("checkpoints/best_model.pt")
@@ -36,16 +38,32 @@ CHECKPOINT_PATH = Path("checkpoints/best_model.pt")
 
 @app.on_event("startup")
 async def load_model():
-    global model, device
+    global model, device, stockfish
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
+    model = ChessNet().to(device)
     if CHECKPOINT_PATH.exists():
-        model = ChessNet().to(device)
         CheckpointManager.load(CHECKPOINT_PATH, model, device=device)
-        model.eval()
-        print(f"Model loaded on {device}")
+        print(f"Model loaded from checkpoint on {device}")
     else:
-        print(f"WARNING: No checkpoint at {CHECKPOINT_PATH}. API will return errors.")
+        print(f"No checkpoint found -- using untrained model for demo")
+    model.eval()
+
+    # Initialize Stockfish
+    try:
+        stockfish = StockfishService(depth=16, threads=2, hash_mb=128)
+        print("Stockfish engine loaded")
+    except FileNotFoundError as e:
+        print(f"Warning: {e}")
+        print("Running without Stockfish -- human_eval will not be computed")
+
+
+@app.on_event("shutdown")
+async def shutdown_engine():
+    global stockfish
+    if stockfish:
+        stockfish.close()
+        stockfish = None
 
 
 class AnalyzeRequest(BaseModel):
@@ -98,9 +116,25 @@ async def analyze_position(req: AnalyzeRequest):
     except ValueError:
         raise HTTPException(400, f"Invalid FEN: {req.fen}")
 
+    # First pass: get top moves from policy head (without Stockfish evals)
     result = compute_human_eval(
         model, req.fen, req.elo, top_k=req.top_k, device=device
     )
+
+    # Second pass: evaluate top moves with Stockfish, then recompute
+    if stockfish and result.get("top_moves"):
+        top_moves_uci = [
+            chess.Move.from_uci(m["move_uci"]) for m in result["top_moves"]
+        ]
+        sf_evals = stockfish.evaluate_moves(board, top_moves_uci)
+        if sf_evals:
+            result = compute_human_eval(
+                model, req.fen, req.elo,
+                stockfish_evals=sf_evals,
+                top_k=req.top_k,
+                device=device,
+            )
+
     return AnalyzeResponse(**result)
 
 
@@ -115,11 +149,15 @@ async def analyze_elo_range(req: EloCurveRequest):
     except ValueError:
         raise HTTPException(400, f"Invalid FEN: {req.fen}")
 
-    # Without Stockfish integration, use empty evals
-    # TODO: Integrate Stockfish for live evaluations
+    # Get Stockfish evals for all legal moves (computed once, reused across Elos)
+    sf_evals = {}
+    if stockfish:
+        board = chess.Board(req.fen)
+        sf_evals = stockfish.evaluate_all_legal(board)
+
     curve = compute_elo_curve(
         model, req.fen,
-        stockfish_evals={},
+        stockfish_evals=sf_evals,
         elo_range=(req.elo_min, req.elo_max),
         elo_step=req.elo_step,
         device=device,
@@ -132,5 +170,6 @@ async def health():
     return {
         "status": "ok",
         "model_loaded": model is not None,
+        "stockfish_loaded": stockfish is not None,
         "device": device,
     }
