@@ -112,6 +112,9 @@ def move_to_policy_index(move: chess.Move, flip: bool = False) -> int:
 def policy_index_to_move(index: int, board: chess.Board) -> chess.Move | None:
     """Convert a policy index back to a chess.Move.
 
+    All coordinates are computed in encoded (possibly flipped) space first,
+    then un-flipped at the end to get actual board coordinates.
+
     Args:
         index: Policy index (0-4671)
         board: Current board state (needed for promotion detection)
@@ -121,81 +124,57 @@ def policy_index_to_move(index: int, board: chess.Board) -> chess.Move | None:
     """
     flip = not board.turn
 
+    # Extract coordinates in encoded space
     from_row = index // (8 * 73)
     remainder = index % (8 * 73)
     from_col = remainder // 73
     plane = remainder % 73
-
-    if flip:
-        from_row = 7 - from_row
 
     if plane < 56:
         # Queen-like move
         distance = plane // 8 + 1
         dir_idx = plane % 8
         dr, dc = QUEEN_DIRECTIONS[dir_idx]
-        to_row = (7 - from_row if flip else from_row) + dr * distance
+        to_row = from_row + dr * distance
         to_col = from_col + dc * distance
-        if flip:
-            to_row_orig = 7 - to_row
-        else:
-            to_row_orig = to_row
-
-        from_sq = chess.square(from_col, 7 - from_row if flip else from_row)
-        # Need to un-flip to_row for actual move
-        actual_from_row = 7 - from_row if flip else from_row
-        actual_to_row = actual_from_row + dr * distance
-        actual_to_col = from_col + dc * distance
-
-        if not (0 <= actual_to_row < 8 and 0 <= actual_to_col < 8):
-            return None
-
-        from_sq = chess.square(from_col, actual_from_row)
-        to_sq = chess.square(actual_to_col, actual_to_row)
-
-        # Check for queen promotion
-        piece = board.piece_at(from_sq)
-        promotion = None
-        if piece and piece.piece_type == chess.PAWN:
-            if actual_to_row == 7 or actual_to_row == 0:
-                promotion = chess.QUEEN
-
-        return chess.Move(from_sq, to_sq, promotion=promotion)
-
     elif plane < 64:
         # Knight move
         knight_idx = plane - 56
         dr, dc = KNIGHT_OFFSETS[knight_idx]
-        actual_from_row = 7 - from_row if flip else from_row
-        actual_to_row = actual_from_row + dr
-        actual_to_col = from_col + dc
-
-        if not (0 <= actual_to_row < 8 and 0 <= actual_to_col < 8):
-            return None
-
-        from_sq = chess.square(from_col, actual_from_row)
-        to_sq = chess.square(actual_to_col, actual_to_row)
-        return chess.Move(from_sq, to_sq)
-
+        to_row = from_row + dr
+        to_col = from_col + dc
     else:
         # Underpromotion
         underpromo_idx = plane - 64
         piece_idx = underpromo_idx // 3
         dir_idx = underpromo_idx % 3
         dc = UNDERPROMO_DIRS[dir_idx]
+        # In encoded space, pawns always promote "upward" (row increases)
+        to_row = from_row + 1
+        to_col = from_col + dc
 
-        actual_from_row = 7 - from_row if flip else from_row
-        # Pawns promote on rank 7 (white) or rank 0 (black)
-        actual_to_row = actual_from_row + (1 if board.turn else -1)
-        actual_to_col = from_col + dc
+    # Bounds check (in encoded space)
+    if not (0 <= to_row < 8 and 0 <= to_col < 8):
+        return None
 
-        if not (0 <= actual_to_row < 8 and 0 <= actual_to_col < 8):
-            return None
+    # Un-flip to actual board coordinates
+    actual_from_row = (7 - from_row) if flip else from_row
+    actual_to_row = (7 - to_row) if flip else to_row
 
-        from_sq = chess.square(from_col, actual_from_row)
-        to_sq = chess.square(actual_to_col, actual_to_row)
+    from_sq = chess.square(from_col, actual_from_row)
+    to_sq = chess.square(to_col, actual_to_row)
+
+    # Determine promotion
+    promotion = None
+    if plane >= 64:
         promotion = UNDERPROMO_PIECES[piece_idx]
-        return chess.Move(from_sq, to_sq, promotion=promotion)
+    else:
+        piece = board.piece_at(from_sq)
+        if piece and piece.piece_type == chess.PAWN:
+            if actual_to_row == 7 or actual_to_row == 0:
+                promotion = chess.QUEEN
+
+    return chess.Move(from_sq, to_sq, promotion=promotion)
 
 
 def get_legal_move_mask(board: chess.Board) -> np.ndarray:
