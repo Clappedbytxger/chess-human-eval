@@ -44,6 +44,7 @@ class TrainConfig:
     # Hardware
     device: str = "auto"  # "auto", "cuda", "cpu"
     num_workers: int = 0  # 0 for Colab
+    pin_memory: bool = False
 
     def resolve_device(self) -> str:
         if self.device == "auto":

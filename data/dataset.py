@@ -86,6 +86,7 @@ def create_dataloader(
     batch_size: int = 1024,
     num_workers: int = 0,
     shuffle: bool = True,
+    pin_memory: bool = False,
 ) -> DataLoader:
     """Create a DataLoader from HDF5 chunks.
 
@@ -94,6 +95,7 @@ def create_dataloader(
         batch_size: Batch size
         num_workers: DataLoader workers (0 for Colab compatibility)
         shuffle: Shuffle samples within DataLoader
+        pin_memory: Pin memory for faster GPU transfer (uses more RAM)
 
     Returns:
         PyTorch DataLoader
@@ -104,6 +106,6 @@ def create_dataloader(
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
-        pin_memory=torch.cuda.is_available(),
+        pin_memory=pin_memory,
         drop_last=True,
     )

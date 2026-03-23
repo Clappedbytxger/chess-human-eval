@@ -71,6 +71,7 @@ def train(config: TrainConfig | None = None, resume_from: Path | None = None):
         config.chunks_dir,
         batch_size=config.batch_size,
         num_workers=config.num_workers,
+        pin_memory=config.pin_memory,
     )
 
     # Tensorboard
