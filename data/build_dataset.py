@@ -43,7 +43,10 @@ def build_chunks(
 
     total = len(df)
     chunk_paths = []
-    chunk_idx = 0
+
+    # Continue numbering from existing chunks
+    existing = sorted(output_dir.glob("chunk_*.h5"))
+    chunk_idx = len(existing)
 
     boards_buf = []
     policies_buf = []

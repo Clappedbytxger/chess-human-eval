@@ -104,7 +104,7 @@ def create_dataloader(
     return DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=shuffle,
+        shuffle=False,  # Chunk-level shuffle in dataset, not global
         num_workers=num_workers,
         pin_memory=pin_memory,
         drop_last=True,
