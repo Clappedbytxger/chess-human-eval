@@ -89,6 +89,11 @@ class StockfishService:
             evals[move.uci()] = cp
         return evals
 
+    def best_move(self, board: chess.Board) -> chess.Move | None:
+        """Get Stockfish's best move for a position."""
+        result = self.engine.play(board, self._get_limit())
+        return result.move
+
     def evaluate_all_legal(self, board: chess.Board) -> dict[str, float]:
         """Evaluate all legal moves in a position from White's perspective.
 

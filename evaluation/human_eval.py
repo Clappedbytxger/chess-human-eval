@@ -1,6 +1,10 @@
 """Core formula: Human-adjusted position evaluation.
 
 human_eval = Σ (probability_human_plays_move_i × stockfish_eval_of_move_i)
+
+Inference enhancements:
+- Temperature scaling: higher Elo -> lower temperature (sharper predictions)
+- Stockfish blending: higher Elo -> more weight on Stockfish top move
 """
 
 import chess
@@ -11,12 +15,34 @@ from model.chess_net import ChessNet
 from model.board_encoder import BoardEncoder
 from model.policy_head import get_legal_move_mask, policy_index_to_move
 
+# Elo-dependent temperature: linear interpolation
+# 800 Elo -> temp 1.3 (diffuse), 2800 Elo -> temp 0.7 (sharp)
+TEMP_ELO_MIN, TEMP_ELO_MAX = 800, 2800
+TEMP_AT_MIN, TEMP_AT_MAX = 1.3, 0.7
+
+# Stockfish blending: alpha = weight on Stockfish top move
+# 800 Elo -> 0%, 2800 Elo -> 35%
+BLEND_ALPHA_MIN, BLEND_ALPHA_MAX = 0.0, 0.35
+
+
+def _elo_temperature(elo: int) -> float:
+    """Compute temperature for Elo-dependent scaling."""
+    t = max(0.0, min(1.0, (elo - TEMP_ELO_MIN) / (TEMP_ELO_MAX - TEMP_ELO_MIN)))
+    return TEMP_AT_MIN + t * (TEMP_AT_MAX - TEMP_AT_MIN)
+
+
+def _elo_blend_alpha(elo: int) -> float:
+    """Compute Stockfish blending weight for given Elo."""
+    t = max(0.0, min(1.0, (elo - TEMP_ELO_MIN) / (TEMP_ELO_MAX - TEMP_ELO_MIN)))
+    return BLEND_ALPHA_MIN + t * (BLEND_ALPHA_MAX - BLEND_ALPHA_MIN)
+
 
 def compute_human_eval(
     model: ChessNet,
     fen: str,
     elo: int,
     stockfish_evals: dict[str, float] | None = None,
+    stockfish_best_uci: str | None = None,
     top_k: int = 10,
     device: str = "cpu",
 ) -> dict:
@@ -28,6 +54,7 @@ def compute_human_eval(
         elo: Player Elo rating
         stockfish_evals: Dict mapping UCI moves to centipawn evals.
                          If None, only returns move probabilities.
+        stockfish_best_uci: UCI string of Stockfish's best move (for blending).
         top_k: Number of top moves to consider
         device: Torch device
 
@@ -51,8 +78,26 @@ def compute_human_eval(
     with torch.no_grad():
         policy_logprobs, value_pred = model(board_tensor, elo_tensor, legal_mask)
 
+    # Temperature scaling: divide logits by temperature before softmax
+    temperature = _elo_temperature(elo)
+    scaled_logprobs = policy_logprobs[0] / temperature
+    probs = torch.softmax(scaled_logprobs, dim=0)
+
+    # Stockfish blending: blend model probs with one-hot on Stockfish best move
+    if stockfish_best_uci:
+        alpha = _elo_blend_alpha(elo)
+        if alpha > 0:
+            from model.policy_head import move_to_policy_index
+            try:
+                sf_move = chess.Move.from_uci(stockfish_best_uci)
+                sf_idx = move_to_policy_index(sf_move, flip=not board.turn)
+                sf_one_hot = torch.zeros_like(probs)
+                sf_one_hot[sf_idx] = 1.0
+                probs = (1 - alpha) * probs + alpha * sf_one_hot
+            except (ValueError, IndexError):
+                pass  # Skip blending if move can't be encoded
+
     # Get top-k moves
-    probs = torch.exp(policy_logprobs[0])
     top_values, top_indices = probs.topk(min(top_k, probs.size(0)))
 
     top_moves = []

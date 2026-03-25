@@ -24,6 +24,7 @@ def main():
     parser.add_argument("--top-k", type=int, default=5, help="Number of top moves to show")
     parser.add_argument("--elo-curve", action="store_true", help="Show eval across all Elo levels")
     parser.add_argument("--device", type=str, default="auto", help="Device (auto/cuda/cpu)")
+    parser.add_argument("--no-stockfish", action="store_true", help="Disable Stockfish blending")
     args = parser.parse_args()
 
     device = args.device
@@ -34,9 +35,27 @@ def main():
     model = ChessNet().to(device)
     CheckpointManager.load(Path(args.checkpoint), model, device=device)
 
+    # Get Stockfish best move for blending
+    sf_best_uci = None
+    if not args.no_stockfish:
+        try:
+            from evaluation.stockfish_service import StockfishService
+            sf = StockfishService(depth=16, threads=2, hash_mb=128)
+            import chess
+            board = chess.Board(args.fen)
+            sf_best = sf.best_move(board)
+            if sf_best:
+                sf_best_uci = sf_best.uci()
+                print(f"Stockfish best move: {sf_best_uci}")
+            sf.close()
+        except FileNotFoundError:
+            print("Stockfish not found -- running without blending")
+
     # Evaluate
     result = compute_human_eval(
-        model, args.fen, args.elo, top_k=args.top_k, device=device
+        model, args.fen, args.elo,
+        stockfish_best_uci=sf_best_uci,
+        top_k=args.top_k, device=device,
     )
 
     # Display results

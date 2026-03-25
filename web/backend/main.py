@@ -116,9 +116,18 @@ async def analyze_position(req: AnalyzeRequest):
     except ValueError:
         raise HTTPException(400, f"Invalid FEN: {req.fen}")
 
-    # Get top moves from policy head
+    # Get Stockfish best move for blending
+    sf_best_uci = None
+    if stockfish:
+        sf_best = stockfish.best_move(board)
+        if sf_best:
+            sf_best_uci = sf_best.uci()
+
+    # Get top moves from policy head (with temperature scaling + SF blending)
     result = compute_human_eval(
-        model, req.fen, req.elo, top_k=req.top_k, device=device
+        model, req.fen, req.elo,
+        stockfish_best_uci=sf_best_uci,
+        top_k=req.top_k, device=device,
     )
 
     # Add Stockfish evals to each move
